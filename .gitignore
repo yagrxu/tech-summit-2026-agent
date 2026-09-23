@@ -34,3 +34,4 @@ delivery/_template/.token.*
 delivery/_template/.base_url.*
 .token*
 .base_url*
+delivery/verikon/build/
