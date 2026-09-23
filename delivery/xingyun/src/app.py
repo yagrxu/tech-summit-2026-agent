@@ -36,7 +36,13 @@ MODEL_ID = os.environ.get("MODEL_ID", "global.anthropic.claude-haiku-4-5-2025100
 TTL_DAYS = 7
 
 _ddb = boto3.resource("dynamodb").Table(TABLE_NAME)
-_s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
+_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "ap-southeast-1"
+# Pin the REGIONAL endpoint: the default global `s3.amazonaws.com` host answers a presigned PUT
+# for a bucket outside us-east-1 with 307 TemporaryRedirect, and an HTTP client that does not
+# re-send the body on a redirect (urllib, and many test harnesses) fails the upload outright.
+_s3 = boto3.client("s3", region_name=_REGION,
+                   endpoint_url=f"https://s3.{_REGION}.amazonaws.com",
+                   config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}))
 _bedrock = boto3.client("bedrock-runtime", config=Config(read_timeout=25, retries={"max_attempts": 1}))
 
 CATEGORIES = ["package", "person", "pet", "vehicle", "unknown"]

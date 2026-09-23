@@ -60,6 +60,11 @@ def render(r):
             pass
         else:
             print(f"\n[{k}] {json.dumps(a, ensure_ascii=False)[:600]}")
+        # materials can ride on any act kind, so check after the dispatch above, not instead of it
+        if k != "say" and a.get("materials"):
+            print("  [MATERIALS]")
+            for m in a["materials"]:
+                print(f"    key={m.get('key')}  name={m.get('name')}")
 
     p = r.get("pending") or {}
     if p:
@@ -120,6 +125,20 @@ CMDS = {
 WRITE_CMDS = {"visit", "advance", "choose", "say", "meet", "leave", "submit"}
 
 
+MANUAL_NOTICE = """\
+[MANUAL MODE] 用户要求：**不自动与网页对话**。写操作已禁用。
+Agent 只准备内容，由用户手工粘贴到网页；用户说"发好了"之后 Agent 再读结果跟进。
+只读命令仍可用：status / poll / material / board。
+如确需恢复自动发送，由**用户明确指示**后设置 TS_ALLOW_SEND=1 单次放行。"""
+
+
+def check_manual(cmd):
+    """Hard stop on anything that talks to the site. See docs/RULES.md §0."""
+    if cmd in WRITE_CMDS and not os.environ.get("TS_ALLOW_SEND"):
+        print(MANUAL_NOTICE, file=sys.stderr)
+        sys.exit(4)
+
+
 def check_lock(cmd):
     """Refuse a state-mutating call unless this agent holds the lock; refresh heartbeat if it does."""
     if cmd not in WRITE_CMDS or os.environ.get("TS_NO_LOCK"):
@@ -144,8 +163,14 @@ if __name__ == "__main__":
     if cmd == "sayfile":
         args = [open(args[0]).read().strip()]
         cmd = "say"
+    check_manual(cmd)
     check_lock(cmd)
     r = CMDS[cmd](args)
     render(r)
     with open("/tmp/ts_last.json", "w") as f:
+        json.dump(r, f, ensure_ascii=False, indent=2)
+    # keep every response: /tmp/ts_last.json alone loses material keys on the next call
+    import time as _t
+    os.makedirs("/tmp/ts_hist", exist_ok=True)
+    with open(f"/tmp/ts_hist/{int(_t.time())}-{cmd}.json", "w") as f:
         json.dump(r, f, ensure_ascii=False, indent=2)
