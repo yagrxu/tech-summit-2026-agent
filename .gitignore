@@ -10,3 +10,5 @@
 build.log
 __pycache__/
 *.pyc
+.autopush.log
+.autopush.pid
