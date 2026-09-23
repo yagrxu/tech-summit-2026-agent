@@ -52,8 +52,8 @@ aws iam create-role --role-name "$ROLE" --assume-role-policy-document \
 cat > /tmp/$NAME-pol.json <<J
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"arn:aws:logs:*:*:*"},
- {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":"arn:aws:dynamodb:$REGION:$ACCT:table/$TABLE"},
- {"Effect":"Allow","Action":["bedrock:InvokeModel"],"Resource":"*"},
+ {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query"],"Resource":"arn:aws:dynamodb:$REGION:$ACCT:table/$TABLE"},
+ {"Effect":"Allow","Action":["bedrock:InvokeModel"],"Resource":["arn:aws:bedrock:*::foundation-model/anthropic.*","arn:aws:bedrock:*:$ACCT:inference-profile/*"]},
  {"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:ListBucket","s3:HeadObject"],"Resource":["arn:aws:s3:::$BUCKET","arn:aws:s3:::$BUCKET/*"]}]}
 J
 aws iam put-role-policy --role-name "$ROLE" --policy-name "$NAME-inline" \
