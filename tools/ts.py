@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Compact driver for Tech Summit 2026. Renders only what a player needs to decide."""
+import json, sys, textwrap
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from ts_api import post, auth, login  # noqa: E402
+
+W = 110
+
+
+def wrap(t, indent="    "):
+    return "\n".join(textwrap.fill(line, W, initial_indent=indent, subsequent_indent=indent) or indent
+                     for line in str(t).split("\n"))
+
+
+def render_hud(h, cur=None):
+    if not h:
+        return
+    th = {t["id"]: t for t in h.get("themes", [])}
+    c = th.get(cur, {})
+    print(f"[HUD] turn {h.get('turn')}/{h.get('turns_total')}  total_score={h.get('total_score')}  "
+          f"signed={h.get('passed')}")
+    if c:
+        print(f"[THEME] {c.get('name')} ({cur}) state={c.get('state')} score={c.get('score')}")
+    f = h.get("flow") or {}
+    if f:
+        g = f.get("goal") or {}
+        print(f"[FLOW] score={f.get('score')} goal={json.dumps(g, ensure_ascii=False)} "
+              f"affinity={json.dumps(f.get('affinity'), ensure_ascii=False)}")
+    elif h.get("affinity"):
+        print(f"[AFFINITY] {json.dumps(h['affinity'], ensure_ascii=False)}")
+
+
+def render(r):
+    if r.get("error"):
+        print("[ERROR]", r["error"])
+    for a in r.get("acts", []):
+        k = a.get("act")
+        if k == "say":
+            who = a.get("speaker") or a.get("who") or "旁白"
+            print(f"\n<{who}>")
+            print(wrap(a.get("text", "")))
+        elif k == "prompt":
+            print(f"\n[PROMPT] {a.get('text','')}")
+            for i, o in enumerate(a.get("options") or a.get("choices") or []):
+                print(f"   [{i}] {o if isinstance(o,str) else o.get('text') or o.get('label')}")
+        elif k == "feedback":
+            print(f"\n[FEEDBACK score={a.get('score')}] {a.get('text','')}")
+            if a.get("evidence") or a.get("key"):
+                print("   evidence:", a.get("evidence") or a.get("key"))
+        elif k == "meet":
+            print("\n[MEET] choose attendees:")
+            for c in a.get("candidates") or a.get("npcs") or []:
+                print("   ", json.dumps(c, ensure_ascii=False) if not isinstance(c, str) else c)
+        elif k in ("notice", "gate", "end", "visit_end"):
+            print(f"\n[{k.upper()}] {json.dumps({x: y for x, y in a.items() if x != 'act'}, ensure_ascii=False)}")
+        elif k in ("scene", "sprite"):
+            pass
+        else:
+            print(f"\n[{k}] {json.dumps(a, ensure_ascii=False)[:600]}")
+
+    p = r.get("pending") or {}
+    if p:
+        print(f"\n[PENDING] kind={p.get('kind')} node={p.get('node')} expect={p.get('expect')} "
+              f"speaker={p.get('speaker')} round={p.get('round')}/{p.get('max_rounds')} "
+              f"upload={p.get('upload')} {p.get('upload_kind') if p.get('upload') else ''}")
+        if p.get("upload_hint"):
+            print(wrap("hint: " + p["upload_hint"]))
+        for k2 in ("candidates", "options", "materials", "brief", "task", "spec"):
+            if p.get(k2):
+                print(f"  {k2}: {json.dumps(p[k2], ensure_ascii=False)[:2000]}")
+        for h in (p.get("history") or [])[-6:]:
+            print(f"  · {h.get('kind') or h.get('role')}: {str(h.get('text'))[:300]}")
+    print(f"\n[EXPECT] {r.get('expect')}")
+    render_hud(r.get("hud"), r.get("current") or (r.get("hud") or {}).get("current"))
+
+
+CMDS = {
+    "status":  lambda a: auth("/game/status"),
+    "poll":    lambda a: auth("/game/poll"),
+    "visit":   lambda a: auth("/game/action", {"theme": a[0], **({"npcs": a[1].split(",")} if len(a) > 1 else {})}),
+    "advance": lambda a: auth("/game/play", {}),
+    "choose":  lambda a: auth("/game/play", {"action": {"type": "choice", "index": int(a[0])}}),
+    "say":     lambda a: auth("/game/play", {"action": {"type": "text", "text": a[0]}}),
+    "meet":    lambda a: auth("/game/play", {"action": {"type": "meet", "npcs": a[0].split(",")}}),
+    "leave":   lambda a: auth("/game/leave"),
+    "material": lambda a: auth("/game/material", {"key": a[0]}),
+    "board":   lambda a: auth("/leaderboard/api"),
+}
+
+if __name__ == "__main__":
+    cmd, args = sys.argv[1], sys.argv[2:]
+    if cmd == "sayfile":
+        args = [open(args[0]).read().strip()]
+        cmd = "say"
+    r = CMDS[cmd](args)
+    render(r)
+    with open("/tmp/ts_last.json", "w") as f:
+        json.dump(r, f, ensure_ascii=False, indent=2)

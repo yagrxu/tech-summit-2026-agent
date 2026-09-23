@@ -1,0 +1,9 @@
+.omni/
+.claude/
+.github/
+.cursor/
+.kiro/
+.agents/
+.ts_token
+.env.omni
+build.log
