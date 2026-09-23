@@ -15,7 +15,7 @@ NAME="${1:?usage: deploy.sh <name> <src-dir> [region]}"
 SRC="${2:?usage: deploy.sh <name> <src-dir> [region]}"
 REGION="${3:-ap-southeast-1}"
 ACCT=$(aws sts get-caller-identity --query Account --output text)
-TABLE="$NAME-state"; ROLE="$NAME-role"; FN="$NAME-fn"
+TABLE="$NAME-state"; ROLE="$NAME-role"; FN="$NAME-fn"; BUCKET="$NAME-media-$(aws sts get-caller-identity --query Account --output text)"
 MODEL="${MODEL_ID:-global.anthropic.claude-haiku-4-5-20251001-v1:0}"   # bare model ids are rejected:
                                                                       # must be an inference profile
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -35,6 +35,16 @@ aws dynamodb wait table-exists --table-name "$TABLE" --region "$REGION"
 aws dynamodb update-time-to-live --table-name "$TABLE" \
   --time-to-live-specification Enabled=true,AttributeName=ttl --region "$REGION" >/dev/null 2>&1 || true
 
+say "1b/5 S3 bucket $BUCKET (presigned uploads)"
+if ! aws s3api head-bucket --bucket "$BUCKET" --region "$REGION" >/dev/null 2>&1; then
+  if [ "$REGION" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" >/dev/null
+  else
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
+      --create-bucket-configuration LocationConstraint="$REGION" >/dev/null
+  fi
+else echo "  (exists)"; fi
+
 say "2/5 IAM role $ROLE"
 aws iam create-role --role-name "$ROLE" --assume-role-policy-document \
   '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
@@ -43,7 +53,8 @@ cat > /tmp/$NAME-pol.json <<J
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"arn:aws:logs:*:*:*"},
  {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":"arn:aws:dynamodb:$REGION:$ACCT:table/$TABLE"},
- {"Effect":"Allow","Action":["bedrock:InvokeModel"],"Resource":"*"}]}
+ {"Effect":"Allow","Action":["bedrock:InvokeModel"],"Resource":"*"},
+ {"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:ListBucket","s3:HeadObject"],"Resource":["arn:aws:s3:::$BUCKET","arn:aws:s3:::$BUCKET/*"]}]}
 J
 aws iam put-role-policy --role-name "$ROLE" --policy-name "$NAME-inline" \
   --policy-document file:///tmp/$NAME-pol.json
@@ -54,13 +65,13 @@ if aws lambda get-function --function-name "$FN" --region "$REGION" >/dev/null 2
   aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FN" --region "$REGION"
   aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-    --environment "Variables={TABLE_NAME=$TABLE,API_TOKEN=$TOKEN,MODEL_ID=$MODEL}" >/dev/null
+    --environment "Variables={TABLE_NAME=$TABLE,API_TOKEN=$TOKEN,MODEL_ID=$MODEL,BUCKET_NAME=$BUCKET}" >/dev/null
   aws lambda wait function-updated --function-name "$FN" --region "$REGION"
 else
   sleep 10   # IAM propagation
   aws lambda create-function --function-name "$FN" --runtime python3.12 --handler app.handler \
     --role "arn:aws:iam::$ACCT:role/$ROLE" --zip-file "fileb://$ZIP" --timeout 60 --memory-size 512 \
-    --environment "Variables={TABLE_NAME=$TABLE,API_TOKEN=$TOKEN,MODEL_ID=$MODEL}" \
+    --environment "Variables={TABLE_NAME=$TABLE,API_TOKEN=$TOKEN,MODEL_ID=$MODEL,BUCKET_NAME=$BUCKET}" \
     --region "$REGION" >/dev/null
   aws lambda wait function-active --function-name "$FN" --region "$REGION"
 fi
