@@ -23,6 +23,7 @@ LOCK = os.path.join(ROOT, ".game.lock")
 QUEUE = os.path.join(ROOT, ".game.queue")
 LOG = os.path.join(ROOT, ".game.lock.log")
 DEFAULT_TTL = 1200  # 20 min — long enough for a multi-round negotiation node
+QUEUE_TTL = 180     # a queue entry not refreshed within this window forfeits its place
 
 
 def now():
@@ -46,33 +47,59 @@ def expired(rec):
     return rec is not None and now() - rec.get("heartbeat", rec.get("acquired_at", 0)) > rec.get("ttl", DEFAULT_TTL)
 
 
-def read_queue():
+def read_queue_raw():
+    """[(name, last_refreshed_epoch)] in FIFO order, as stored."""
+    out = []
     try:
         with open(QUEUE) as f:
-            return [l.split("\t")[0] for l in f.read().splitlines() if l.strip()]
+            for l in f.read().splitlines():
+                if not l.strip():
+                    continue
+                parts = l.split("\t")
+                try:
+                    out.append((parts[0], float(parts[1])))
+                except (IndexError, ValueError):
+                    out.append((parts[0], 0.0))
     except Exception:
         return []
+    return out
 
 
-def write_queue(names):
+def read_queue():
+    """Live queue only: entries whose holder stopped refreshing forfeit their place.
+
+    Without this, an agent that queued once and then wandered off pins the head of the
+    line forever and starves everyone behind it even while the lock sits free.
+    """
+    t = now()
+    return [n for n, ts in read_queue_raw() if t - ts <= QUEUE_TTL]
+
+
+def write_queue(entries):
+    """entries: list of (name, ts) or bare names (bare names get a fresh timestamp)."""
     tmp = QUEUE + ".tmp"
     with open(tmp, "w") as f:
-        for n in names:
-            f.write(f"{n}\t{int(now())}\n")
+        for e in entries:
+            n, ts = e if isinstance(e, tuple) else (e, now())
+            f.write(f"{n}\t{int(ts)}\n")
     os.replace(tmp, QUEUE)
 
 
 def enqueue(holder):
-    q = read_queue()
-    if holder not in q:
-        q.append(holder)
-        write_queue(q)
-    return q.index(holder)
+    """Append if absent, and always refresh this holder's timestamp (proof of still waiting)."""
+    t = now()
+    q = [(n, ts) for n, ts in read_queue_raw() if t - ts <= QUEUE_TTL and n != holder]
+    prior = [ts for n, ts in read_queue_raw() if n == holder]
+    q.append((holder, t))
+    if prior:  # keep original FIFO position, just refresh the timestamp
+        q.sort(key=lambda e: prior[0] if e[0] == holder else e[1])
+    write_queue(q)
+    return [n for n, _ in q].index(holder)
 
 
 def dequeue(holder):
-    q = [n for n in read_queue() if n != holder]
-    write_queue(q)
+    t = now()
+    write_queue([(n, ts) for n, ts in read_queue_raw() if n != holder and t - ts <= QUEUE_TTL])
 
 
 def try_acquire(holder, purpose, ttl):
@@ -130,8 +157,13 @@ def main():
 
     if a.cmd == "status":
         print(fmt(read_lock()))
-        q = read_queue()
-        print("queue:", " -> ".join(q) if q else "(empty)")
+        t = now()
+        rows = read_queue_raw()
+        live = [f"{n}({int(t - ts)}s)" for n, ts in rows if t - ts <= QUEUE_TTL]
+        stale = [f"{n}({int(t - ts)}s, STALE)" for n, ts in rows if t - ts > QUEUE_TTL]
+        print("queue:", " -> ".join(live) if live else "(empty)")
+        if stale:
+            print("forfeited:", ", ".join(stale))
         return 0
 
     if not a.holder:
@@ -174,6 +206,8 @@ def main():
     if a.cmd == "queue":
         pos = enqueue(a.holder)
         print(f"queued at position {pos} |", fmt(read_lock()))
+        print(f"note: a queue place must be refreshed at least every {QUEUE_TTL}s "
+              f"(`queue` again, or use `wait`), otherwise it is forfeited.")
         return 0
 
     if a.cmd == "wait":
