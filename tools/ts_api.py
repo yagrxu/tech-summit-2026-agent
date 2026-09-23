@@ -7,23 +7,30 @@ APP_KEY = os.environ.get("TS_APP_KEY", "811f5520bb0d735efa1d980a21fea77f30dd7277
 TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".ts_token")
 
 
-def post(path, payload):
+def post(path, payload, attempts=3):
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {APP_KEY}",
         "x-amz-content-sha256": hashlib.sha256(body).hexdigest(),
     }
-    req = urllib.request.Request(BASE + path, data=body, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode()
+    last = None
+    for i in range(attempts):
+        req = urllib.request.Request(BASE + path, data=body, headers=headers, method="POST")
         try:
-            return json.loads(raw)
-        except Exception:
-            return {"error": f"HTTP {e.code}: {raw[:400]}"}
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            try:
+                return json.loads(raw)
+            except Exception:
+                return {"error": f"HTTP {e.code}: {raw[:400]}"}
+        except Exception as e:  # RemoteDisconnected / timeout / reset — the API drops long requests
+            last = e
+            import time
+            time.sleep(2 * (i + 1))
+    return {"error": f"network: {type(last).__name__}: {last}"}
 
 
 def token():
