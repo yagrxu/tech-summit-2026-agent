@@ -8,3 +8,5 @@
 .ts_token
 .env.omni
 build.log
+__pycache__/
+*.pyc
