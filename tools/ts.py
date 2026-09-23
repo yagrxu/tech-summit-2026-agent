@@ -74,8 +74,34 @@ def render(r):
     render_hud(r.get("hud"), r.get("current") or (r.get("hud") or {}).get("current"))
 
 
+def upload(path):
+    """POST /upload → PUT the bytes to the presigned URL → return file_info for /game/play."""
+    import urllib.request
+    name = os.path.basename(path)
+    r = auth("/upload", {"filename": name})
+    if not r.get("upload_url"):
+        return None, r
+    data = open(path, "rb").read()
+    req = urllib.request.Request(r["upload_url"], data=data, method="PUT",
+                                 headers={"Content-Type": "application/octet-stream"})
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        resp.read()
+    return {"key": r["key"], "name": name, "size": len(data)}, r
+
+
+def submit(a):
+    """submit <file> [text-file] — upload a deliverable, optionally with an accompanying message."""
+    fi, raw = upload(a[0])
+    if not fi:
+        return {"error": f"upload failed: {json.dumps(raw, ensure_ascii=False)[:300]}"}
+    text = open(a[1]).read().strip() if len(a) > 1 else ""
+    print(f"[UPLOADED] {fi['name']} ({fi['size']} bytes) key={fi['key']}")
+    return auth("/game/play", {"action": {"type": "text", "text": text}, "file_info": fi})
+
+
 CMDS = {
     "status":  lambda a: auth("/game/status"),
+    "submit":  submit,
     "poll":    lambda a: auth("/game/poll"),
     "visit":   lambda a: auth("/game/action", {"theme": a[0], **({"npcs": a[1].split(",")} if len(a) > 1 else {})}),
     "advance": lambda a: auth("/game/play", {}),
@@ -88,7 +114,7 @@ CMDS = {
 }
 
 #: commands that mutate game state — these require holding the shared game lock
-WRITE_CMDS = {"visit", "advance", "choose", "say", "meet", "leave"}
+WRITE_CMDS = {"visit", "advance", "choose", "say", "meet", "leave", "submit"}
 
 
 def check_lock(cmd):
