@@ -12,3 +12,6 @@ __pycache__/
 *.pyc
 .autopush.log
 .autopush.pid
+.game.lock
+.game.queue
+.game.lock.log

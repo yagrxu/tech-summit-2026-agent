@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compact driver for Tech Summit 2026. Renders only what a player needs to decide."""
-import json, sys, textwrap
+import json, os, sys, textwrap
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from ts_api import post, auth, login  # noqa: E402
 
@@ -87,11 +87,35 @@ CMDS = {
     "board":   lambda a: auth("/leaderboard/api"),
 }
 
+#: commands that mutate game state — these require holding the shared game lock
+WRITE_CMDS = {"visit", "advance", "choose", "say", "meet", "leave"}
+
+
+def check_lock(cmd):
+    """Refuse a state-mutating call unless this agent holds the lock; refresh heartbeat if it does."""
+    if cmd not in WRITE_CMDS or os.environ.get("TS_NO_LOCK"):
+        return
+    import subprocess
+    agent = os.environ.get("TS_AGENT", "")
+    lockpy = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gamelock.py")
+    if not agent:
+        print("[LOCK] TS_AGENT 未设置 —— 写操作必须声明自己是哪个 agent。"
+              "  export TS_AGENT=<你的代号>", file=sys.stderr)
+        sys.exit(3)
+    p = subprocess.run([sys.executable, lockpy, "heartbeat", agent], capture_output=True, text=True)
+    if p.returncode != 0:
+        print(f"[LOCK] {agent} 未持有游戏锁，拒绝执行 `{cmd}`。\n{p.stdout.strip()}\n"
+              f"→ python3 tools/gamelock.py acquire {agent} --purpose '...'\n"
+              f"→ 拿不到就去准备材料（docs/RULES.md §12），别空等。", file=sys.stderr)
+        sys.exit(3)
+
+
 if __name__ == "__main__":
     cmd, args = sys.argv[1], sys.argv[2:]
     if cmd == "sayfile":
         args = [open(args[0]).read().strip()]
         cmd = "say"
+    check_lock(cmd)
     r = CMDS[cmd](args)
     render(r)
     with open("/tmp/ts_last.json", "w") as f:
