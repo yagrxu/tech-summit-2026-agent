@@ -1,5 +1,6 @@
 .omni/
-.claude/
+.claude/*
+!.claude/skills/
 .github/
 .cursor/
 .kiro/
