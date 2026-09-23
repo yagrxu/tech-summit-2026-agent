@@ -65,3 +65,20 @@ python3 tools/ts.py leave                     # 撤，不耗回合
 
 `sayfile` 之后完整响应落在 `/tmp/ts_last.json`（需要看 `pending.of` 候选人之类的细节时读它）。
 判定中（`expect=judging`）就每 10 秒 `poll` 一次，复杂验收可能要几分钟。
+
+## 多 Agent 并发：游戏锁（必读）
+
+平台是单玩家状态机 —— 账号同一时刻只能在一家公司里，并发写会撞 `操作太快`。
+所以多 agent **轮流持有店内槽位**，并行的只有**离线备料**。完整协议见 `docs/RULES.md §12`。
+
+```bash
+export TS_AGENT=<你的代号>                   # 不设则写操作被拒（exit 3）
+python3 tools/gamelock.py queue   $TS_AGENT  # 先排队，不阻塞
+python3 tools/gamelock.py acquire $TS_AGENT --purpose "..."
+python3 tools/gamelock.py release $TS_AGENT   # 到等待点立刻放，并 SendMessage 通知下一位
+python3 tools/gamelock.py status
+```
+
+- `tools/ts.py` 的写操作（`visit/advance/choose/say/meet/leave`）强制校验锁；`status/poll/material` 只读免锁。
+- **持锁只做必须在线的事**（说话、约见、提交、判定轮询）；写代码/写文档/部署一律离线做。
+- **等锁不空等**：去备交付物、拆判定依据 checklist、写场景裁决表、起草答案（`docs/RULES.md §12.4`）。
