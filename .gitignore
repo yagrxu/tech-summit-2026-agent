@@ -15,3 +15,18 @@ __pycache__/
 .game.lock
 .game.queue
 .game.lock.log
+
+# secrets & organizer-supplied exam material — autopush uses `git add -A`,
+# so anything not listed here gets published to the public repo automatically
+.token
+**/.token
+*.token
+materials/
+delivery/melive/.token
+delivery/melive/.base_url
+delivery/melive/.base_url_api
+delivery/melive/fn.zip
+delivery/*/.token
+delivery/*/.base_url*
+delivery/*/*.zip
+materials/
