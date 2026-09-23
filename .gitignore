@@ -30,3 +30,5 @@ delivery/*/.token
 delivery/*/.base_url*
 delivery/*/*.zip
 materials/
+delivery/_template/.token.*
+delivery/_template/.base_url.*

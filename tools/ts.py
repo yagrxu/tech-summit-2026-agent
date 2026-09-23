@@ -39,6 +39,9 @@ def render(r):
             who = a.get("speaker") or a.get("who") or "旁白"
             print(f"\n<{who}>")
             print(wrap(a.get("text", "")))
+            # materials ride along on `say` acts and unlock only at this node — never drop them
+            for m in a.get("materials") or []:
+                print(f"    [MATERIAL] key={m.get('key')}  name={m.get('name')}")
         elif k == "prompt":
             print(f"\n[PROMPT] {a.get('text','')}")
             for i, o in enumerate(a.get("options") or a.get("choices") or []):

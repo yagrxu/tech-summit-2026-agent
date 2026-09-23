@@ -79,6 +79,9 @@ python3 tools/gamelock.py release $TS_AGENT   # 到等待点立刻放，并 Send
 python3 tools/gamelock.py status
 ```
 
+- ⚠️ **共享账号是单玩家**：服务端只有一份"当前所在公司"指针。别人 `visit` 会把玩家从你的节点里拽走。
+  **离线建设超过 ~15 分钟：先 `leave` 再 `release`**；**接管锁后第一件事是 `poll` 确认 live 节点是不是你的**，不是就别动。
+- ⚠️ **token 只有一份**：任何一方 `login` 会把另一方踢下线。**只有持锁者有权 login**；非持锁者见"请先登录"就去排队，别登录。
 - `tools/ts.py` 的写操作（`visit/advance/choose/say/meet/leave`）强制校验锁；`status/poll/material` 只读免锁。
 - **持锁只做必须在线的事**（说话、约见、提交、判定轮询）；写代码/写文档/部署一律离线做。
 - **等锁不空等**：去备交付物、拆判定依据 checklist、写场景裁决表、起草答案（`docs/RULES.md §12.4`）。
