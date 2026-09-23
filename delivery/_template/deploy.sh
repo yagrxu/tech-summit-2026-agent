@@ -42,7 +42,7 @@ aws iam create-role --role-name "$ROLE" --assume-role-policy-document \
 cat > /tmp/$NAME-pol.json <<J
 {"Version":"2012-10-17","Statement":[
  {"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"arn:aws:logs:*:*:*"},
- {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query"],"Resource":"arn:aws:dynamodb:$REGION:$ACCT:table/$TABLE"},
+ {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":"arn:aws:dynamodb:$REGION:$ACCT:table/$TABLE"},
  {"Effect":"Allow","Action":["bedrock:InvokeModel"],"Resource":"*"}]}
 J
 aws iam put-role-policy --role-name "$ROLE" --policy-name "$NAME-inline" \
